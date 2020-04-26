@@ -25,8 +25,8 @@ class Recipe(models.Model):
     second_image = models.CharField(max_length=1000, default='')
     third_image = models.CharField(max_length=1000, default='')
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="recipes")
-    author = models.ForeignKey(MyUser, on_delete=models.CASCADE, related_name="recipes", default=1)
-    followers = models.ManyToManyField(MyUser)
+    author = models.ForeignKey(MyUser, on_delete=models.CASCADE, related_name="created_recipes", default=1)
+    followers = models.ManyToManyField(MyUser, related_name="followed_recipes")
 
     class Meta:
         verbose_name = 'Recipe'

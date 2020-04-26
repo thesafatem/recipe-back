@@ -33,7 +33,7 @@ class CategorySerializer(serializers.Serializer):
 
 
 class RecipeSerializer(serializers.ModelSerializer):
-    followers = MyUserSerializer(many=True, read_only=True)
+    followers = MyUserSerializer(many=True)
 
     class Meta:
         model = Recipe

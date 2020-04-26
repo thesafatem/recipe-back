@@ -3,9 +3,8 @@ import json
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import status, generics
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status, generics, filters
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -74,14 +73,7 @@ class RecipeListAPIView(APIView):
 
 
 class RecipeDetailAPIView(APIView):
-    def get_object(self, recipe_id):
-        try:
-            return Recipe.objects.get(id=recipe_id)
-        except Recipe.DoesNotExist as e:
-            return Response({'error': str(e)})
-
     def get(self, request, recipe_id):
-        # recipe = self.get_object(recipe_id)
         recipe = get_object_or_404(Recipe, pk=recipe_id)
         serializer = RecipeSerializer(recipe)
         return Response(serializer.data)
@@ -115,11 +107,45 @@ class TopTenRecipesAPIView(APIView):
         return Response(serializer.data)
 
 
-class CommentsByRecipeAPIView(generics.ListAPIView):
-    def get_queryset(self):
-        return Comment.objects.filter(recipe=self.kwargs.get('pk'))
+class CommentsByRecipeAPIView(APIView):
+    def get(self, request, **kwargs):
+        comments = Comment.objects.filter(recipe=kwargs.get('recipe_id'))
+        serializer = CommentSerializer(comments, many=True)
+        return Response(serializer.data)
 
-    serializer_class = CommentSerializer
+    def post(self, request, **kwargs):
+        if not request.user.is_authenticated:
+            return Response({'message': 'Unauthorized user'}, status=status.HTTP_401_UNAUTHORIZED)
+        user = request.user
+        request.data["author"] = user.id
+        request.data["recipe"] = kwargs.get('recipe_id')
+        serializer = CommentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            return Response({'error': serializer.errors}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CommentByRecipeAPIView(APIView):
+    def put(self, request, recipe_id, comment_id):
+        comment = get_object_or_404(Comment, pk=comment_id)
+        user = request.user
+        if comment.author.id != user.id:
+            return Response({'message': 'You can not edit this comment'}, status=status.HTTP_403_FORBIDDEN)
+        serializer = CommentSerializer(instance=comment, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response({'errors': serializer.errors})
+
+    def delete(self, request, recipe_id, comment_id):
+        comment = get_object_or_404(Comment, pk=comment_id)
+        user = request.user
+        if comment.author.id != user.id:
+            return Response({'message': 'You can not edit this comment'}, status=status.HTTP_403_FORBIDDEN)
+        comment.delete()
+        return Response({'deleted': True})
 
 
 class FollowRecipeAPIView(APIView):
@@ -128,11 +154,20 @@ class FollowRecipeAPIView(APIView):
         if not request.user.is_authenticated:
             return Response({'message': 'Unauthorized user'}, status=status.HTTP_401_UNAUTHORIZED)
         user = request.user
-        recipe.followers.add(user)
-        user.recipe_set.add(recipe)
-        recipe.save()
-        user.save()
-        return Response({'message': 'User {} successfully followed recipe {}'.format(user.id, recipe_id)},
+        recipes = Recipe.objects.filter(followers__in=[user])
+        if recipe in recipes:
+            recipe.followers.remove(user)
+            user.followed_recipes.remove(recipe)
+            recipe.save()
+            user.save()
+            return Response({'message': 'User {} successfully unfollowed recipe {}'.format(user.id, recipe_id)},
+                            status=status.HTTP_200_OK)
+        else:
+            recipe.followers.add(user)
+            user.followed_recipes.add(recipe)
+            recipe.save()
+            user.save()
+            return Response({'message': 'User {} successfully followed recipe {}'.format(user.id, recipe_id)},
                         status=status.HTTP_200_OK)
 
 
@@ -145,3 +180,19 @@ class LikeRecipeAPIView(APIView):
         recipe.likes += 1
         recipe.save()
         return Response({'message': 'Recipe {} successfully liked'.format(recipe_id)})
+
+
+class FollowedRecipesByUserAPIView(APIView):
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return Response({'message': 'Unauthorized user'}, status=status.HTTP_401_UNAUTHORIZED)
+        recipes = Recipe.objects.filter(followers__in=[request.user])
+        serializer = RecipeSerializer(recipes, many=True)
+        return Response(serializer.data)
+
+
+class RecipeSearchAPIView(generics.ListCreateAPIView):
+    search_fields = ['title']
+    filter_backends = (filters.SearchFilter,)
+    queryset = Recipe.objects.all()
+    serializer_class = RecipeSerializer
