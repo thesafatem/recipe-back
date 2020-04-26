@@ -59,7 +59,6 @@ web/django/media/
 # django/media
 .idea/
 .vscode
-db.sqlite3
 celerybeat-schedule.db
 celerybeat-schedule
 celerybeat.pid
